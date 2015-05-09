@@ -124,7 +124,9 @@ public class ReflectiveFeignMaker extends FeignMaker {
                 try {
                     indexToExpander
                             .put(indexToExpanderClass.getKey(), indexToExpanderClass.getValue().newInstance());
-                } catch (InstantiationException | IllegalAccessException e) {
+                } catch (InstantiationException e) {
+                    throw new IllegalStateException(e);
+                } catch ( IllegalAccessException e) {
                     throw new IllegalStateException(e);
                 }
             }
