@@ -15,9 +15,30 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 public class FeignClient<T> {
 
+
+    private static ExecutorService defaultExecutor = null;
+    private static ExecutorService defaultExecutor() {
+        if(defaultExecutor == null) {
+            defaultExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = Executors.defaultThreadFactory().newThread(r);
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+        }
+        return defaultExecutor;
+    }
+
+    private final Executor executor;
     private final FeignMaker.Builder.BuiltData data;
     private final Target target;
     private final Map<String, MethodMetadata> metadata;
@@ -29,6 +50,7 @@ public class FeignClient<T> {
     public FeignClient(Target target, FeignMaker.Builder.BuiltData data) {
         this.target = target;
         this.data = data;
+        this.executor = defaultExecutor();
 
         List<MethodMetadata> metadataList = data.contract().parseAndValidatateMetadata(target.type());
 
@@ -184,14 +206,22 @@ public class FeignClient<T> {
             return this;
         }
 
-        public <U> ListenableFuture<U> go(Function<T, U> function) {
+        public <U> ListenableFuture<U> go(final Function<T, U> execution) {
 
-            SettableFuture<U> future = SettableFuture.create();
-            T instance = proxy(headerSuppliers, builderInterceptors, loadBalancerKey);
+            final SettableFuture<U> future = SettableFuture.create();
+            final T instance = proxy(headerSuppliers, builderInterceptors, loadBalancerKey);
 
-            {   //TODO execute asynchronously
-                future.set(function.apply(instance));
-            }
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        future.set(execution.apply(instance));
+                    }
+                    catch(Throwable e) {
+                        future.setException(e);
+                    }
+                }
+            });
 
             return future;
         }
